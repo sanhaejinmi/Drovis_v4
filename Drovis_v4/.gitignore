@@ -1,0 +1,10 @@
+venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.sqlite3
+.vscode/
+database/*.db
+uploads/
+venv310/
+data/
