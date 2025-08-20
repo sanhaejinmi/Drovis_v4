@@ -19,6 +19,8 @@ class HistoryWindow(QWidget):
         super().__init__()
         self.setWindowTitle("분석 기록")
         self.setGeometry(300, 200, 1100, 640)
+        self.resize(1175, 700)
+        self.setMinimumSize(1000, 500)
         self.history_file = history_file
         self.username = username
         self.init_ui()
