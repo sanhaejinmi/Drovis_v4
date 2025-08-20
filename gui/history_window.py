@@ -7,7 +7,6 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor
 
 from core.services.history_json import load_all, delete_all
-from gui.explanation_window import ExplanationWindow  # 새 창
 
 from PyQt5.QtWidgets import QDialog, QScrollArea, QGridLayout, QSizePolicy
 from PyQt5.QtGui import QPixmap
@@ -264,9 +263,7 @@ class HistoryWindow(QWidget):
             self.table.setRowCount(0)
             QMessageBox.information(self, "삭제됨", f"{deleted}개 기록이 삭제되었습니다.")
 
-    def open_explanation(self, payload):
-        self.explain_window = ExplanationWindow(username=self.username, record_payload=payload)
-        self.explain_window.show()
+
 
     def go_back_to_upload(self):
         from gui.upload_window import UploadWindow
