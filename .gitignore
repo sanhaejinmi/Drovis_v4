@@ -8,3 +8,5 @@ database/*.db
 uploads/
 venv310/
 data/
+.env
+*.env

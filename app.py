@@ -1,4 +1,7 @@
 # app.py
+
+from dotenv import load_dotenv, find_dotenv
+load_dotenv(find_dotenv())  # CWD가 달라도 project-root의 .env를 찾아 로드
 import sys, os, ctypes
 from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QIcon
