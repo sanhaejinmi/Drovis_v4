@@ -2,10 +2,12 @@ import os
 import numpy as np
 import torch
 import math
+import cv2
 from collections import Counter
 from core.services.preprocess import process_pose
 from core.config import Config
 from core.models.lstm_model import LSTMModel
+from typing import List, Dict
 
 
 DEBUG = True  # 개발- True, 운영 - False
@@ -14,6 +16,7 @@ DEBUG = True  # 개발- True, 운영 - False
 PELVIS_L, PELVIS_R = 23, 24          # 좌우 골반
 SHOULDER_L, SHOULDER_R = 11, 12      # 좌우 어깨
 
+WINDOW = 30
 
 # 포즈 좌표 정규화 함수
 def normalize_seq_2d(seq: np.ndarray) -> np.ndarray:
@@ -89,6 +92,94 @@ def get_suspicion_level(label_counts: Counter, *, min_total_chunks: int = 4) -> 
         return "하"
     return "하"
 
+# 관절 좌표에 점, 선 표시
+def _draw_skeleton_on_frame(frame: np.ndarray, xy66: np.ndarray) -> None:
+    h, w = frame.shape[:2]
+    pts = xy66.reshape(33, 2)
+    # 점
+    for (x, y) in pts:
+        cx, cy = int(x * w), int(y * h)
+        if 0 <= cx < w and 0 <= cy < h:
+            cv2.circle(frame, (cx, cy), 6, (0, 0, 255), -1)
+    # 간단 연결선(예: 어깨, 골반)
+    pairs = [(11, 12), (23, 24)]
+    for a, b in pairs:
+        ax, ay = int(pts[a,0]*w), int(pts[a,1]*h)
+        bx, by = int(pts[b,0]*w), int(pts[b,1]*h)
+        cv2.line(frame, (ax, ay), (bx, by), (200, 200, 200), 3)
+
+
+# 라벨별로 가장 확률 높은 윈도우 인덱스 1개 선택
+def _pick_best_index_per_label(predictions: List[int],
+                               probs_list: List[np.ndarray],
+                               target_label: int) -> int:
+    best_i, best_p = -1, -1.0
+    for i, (pred, probs) in enumerate(zip(predictions, probs_list)):
+        if pred == target_label:
+            p = float(probs[target_label])
+            if p > best_p:
+                best_p, best_i = p, i
+    return best_i  # 없으면 -1
+
+
+# 실제 프레임 캡처, 좌표 오버레이, JPG 저장
+def save_evidence_images(
+    video_path: str,
+    pose_seq_raw: np.ndarray,          # 프레임별 xy66 (0~1)
+    predictions: List[int],            # 윈도우별 라벨
+    probs_list: List[np.ndarray],      # 윈도우별 확률 벡터
+    window: int,
+    out_dir: str,
+    label_map: Dict[int, str],
+) -> List[Dict]:
+
+    os.makedirs(out_dir, exist_ok=True)
+    cap = cv2.VideoCapture(video_path)
+    fps = cap.get(cv2.CAP_PROP_FPS) or 30.0
+
+    evidence = []
+    suspicious_labels = [1, 2, 3]  
+
+    for lbl in suspicious_labels:
+        best = _pick_best_index_per_label(predictions, probs_list, lbl)
+        if best < 0:
+            continue
+
+        mid_frame = best + (window // 2)  # 전역 프레임 인덱스
+        cap.set(cv2.CAP_PROP_POS_FRAMES, mid_frame)
+        ok, frame = cap.read()
+        if not ok:
+            continue
+
+        # 좌표 오버레이
+        if 0 <= mid_frame < len(pose_seq_raw):
+            xy66 = pose_seq_raw[mid_frame]
+            _draw_skeleton_on_frame(frame, xy66)
+
+        # 텍스트(라벨/타임스탬프)
+        ts = mid_frame / fps
+        label_txt = label_map.get(lbl, str(lbl))
+        txt = f"{label_txt} @ {ts:.2f}s"
+        cv2.putText(frame, txt, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,0), 3, cv2.LINE_AA)
+        cv2.putText(frame, txt, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 1, cv2.LINE_AA)
+
+        # 파일 저장
+        base = os.path.splitext(os.path.basename(video_path))[0]
+        fname = f"{base}_{label_txt}_{mid_frame:06d}.jpg"
+        fpath = os.path.join(out_dir, fname)
+        cv2.imwrite(fpath, frame)
+
+        evidence.append({
+            "label": label_txt,
+            "frame_idx": int(mid_frame),
+            "timestamp_sec": round(float(ts), 2),
+            "image_path": fpath.replace("\\", "/"),
+        })
+
+    cap.release()
+    return evidence
+
+
 
 # 전체 예측 함수
 def predict_from_video(video_path: str, user_id: str) -> dict:
@@ -136,7 +227,7 @@ def predict_from_video(video_path: str, user_id: str) -> dict:
             n = len(seq)
             return [seq[i:i+window] for i in range(0, n - window + 1, step)]
         
-        chunks = make_chunk_step(sequence, window=30)
+        chunks = make_chunk_step(sequence, window=WINDOW)
         if not chunks:
             return {
                 "success": False,
@@ -179,6 +270,31 @@ def predict_from_video(video_path: str, user_id: str) -> dict:
         suspicion_level = get_suspicion_level(label_counts)
 
 
+        try:
+            uploads_root = getattr(Config, "UPLOAD_FOLDER", None) or getattr(Config, "UPLOAD_DIR", None)
+        except Exception:
+            uploads_root = None
+
+        base_name = os.path.splitext(os.path.basename(video_path))[0]
+        if uploads_root:
+            evidence_dir = os.path.join(uploads_root, "evidence", base_name)
+        else:
+            # 2) 없으면, 영상 파일이 있는 폴더 아래에 evidence/<영상명>
+            evidence_dir = os.path.join(os.path.dirname(video_path), "evidence", base_name)
+
+        # 라벨별 대표 프레임 1장씩 캡처 + 좌표 오버레이 + 저장
+        evidence = save_evidence_images(
+            video_path=video_path,
+            pose_seq_raw=pose_seq,     # process_pose의 원본 좌표
+            predictions=predictions,       # 윈도우별 라벨
+            probs_list=probs_list,         # 윈도우별 확률
+            window=WINDOW,                 
+            out_dir=evidence_dir,
+            label_map=LABEL_MAP,           # 기존에 쓰던 라벨 맵 그대로
+        )
+
+
+
         # DEBUG 출력
         if DEBUG:
             total = sum(label_counts.values()) or 1
@@ -205,6 +321,11 @@ def predict_from_video(video_path: str, user_id: str) -> dict:
                 f"[DBG] frames(after norm)={len(sequence)}, chunks={len(chunks)}, expect={max(len(sequence)-29,0)}"
             )
 
+            print(f"[EVIDENCE] dir: {evidence_dir}")
+            print(f"[EVIDENCE] saved: {len(evidence)} file(s)")
+            for ev in evidence:
+                print(f"  - {ev['label']} @{ev['timestamp_sec']}s -> {ev['image_path']}")
+
         # 실제 탐지된 행동 라벨 리스트
         detected = [
             LABEL_MAP[l] for l in SUSPICIOUS_LABELS if label_counts.get(l, 0) > 0
@@ -225,4 +346,5 @@ def predict_from_video(video_path: str, user_id: str) -> dict:
         "detected_actions": detected,               
         "result_per_chunk": [LABEL_MAP[p] for p in predictions],
         "npy_path": npy_path,
+        "evidence": evidence,
     }
