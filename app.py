@@ -4,7 +4,7 @@ from PyQt5.QtWidgets import QApplication
 from PyQt5.QtGui import QIcon
 from core.models import create_user_table, create_analysis_table
 from gui.main_window import MainWindow, load_stylesheet
-
+from pathlib import Path
 
 def resource_path(*parts):
     # PyInstaller로 빌드해도 동작하도록 안전한 경로 생성
@@ -12,11 +12,10 @@ def resource_path(*parts):
     return os.path.join(base, *parts)
 
 
-# DB 폴더 자동 생성 (app.py가 있는 Drovis_v3 기준으로 절대경로 사용)
-DB_DIR = os.path.normpath(
-    os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "database")
-)
-os.makedirs(DB_DIR, exist_ok=True)
+BASE_DIR = Path(__file__).resolve().parent        # Drovis_v4
+DB_DIR = BASE_DIR / "database"                    # Drovis_v4/database
+DB_DIR.mkdir(parents=True, exist_ok=True)
+
 
 # DB 테이블 생성
 create_user_table()
