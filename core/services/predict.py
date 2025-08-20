@@ -7,7 +7,7 @@ from collections import Counter
 from core.services.preprocess import process_pose
 from core.config import Config
 from core.models.lstm_model import LSTMModel
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 
 DEBUG = True  # 개발- True, 운영 - False
@@ -131,6 +131,7 @@ def save_evidence_images(
     window: int,
     out_dir: str,
     label_map: Dict[int, str],
+    frame_index_map: Optional[List[int]] = None,
 ) -> List[Dict]:
 
     os.makedirs(out_dir, exist_ok=True)
@@ -145,25 +146,32 @@ def save_evidence_images(
         if best < 0:
             continue
 
-        mid_frame = best + (window // 2)  # 전역 프레임 인덱스
+        mid_pose_idx = best + (window // 2)  # 전역 프레임 인덱스
+        # 원본 영상 프레임 번호로 변환(= 캡처에 쓸 인덱스)
+        if frame_index_map and 0 <= mid_pose_idx < len(frame_index_map):
+            mid_frame = int(frame_index_map[mid_pose_idx])
+        else:
+            # 하위 호환(매핑이 없을 때 — 정확도 떨어짐)
+            mid_frame = mid_pose_idx
+
+        # 해당 프레임 캡처
         cap.set(cv2.CAP_PROP_POS_FRAMES, mid_frame)
         ok, frame = cap.read()
         if not ok:
             continue
 
-        # 좌표 오버레이
-        if 0 <= mid_frame < len(pose_seq_raw):
-            xy66 = pose_seq_raw[mid_frame]
+        # 좌표는 '포즈 시퀀스 인덱스'로 접근해서 그려야 정합성 유지
+        if 0 <= mid_pose_idx < len(pose_seq_raw):
+            xy66 = pose_seq_raw[mid_pose_idx]
             _draw_skeleton_on_frame(frame, xy66)
 
-        # 텍스트(라벨/타임스탬프)
         ts = mid_frame / fps
         label_txt = label_map.get(lbl, str(lbl))
-        txt = f"{label_txt} @ {ts:.2f}s"
-        cv2.putText(frame, txt, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,0), 3, cv2.LINE_AA)
-        cv2.putText(frame, txt, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 1, cv2.LINE_AA)
+        title = f"{label_txt} @ {ts:.2f}s"
+        # 가독성 있는 외곽선 텍스트
+        cv2.putText(frame, title, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0,0,0), 3, cv2.LINE_AA)
+        cv2.putText(frame, title, (12, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255,255,255), 1, cv2.LINE_AA)
 
-        # 파일 저장
         base = os.path.splitext(os.path.basename(video_path))[0]
         fname = f"{base}_{label_txt}_{mid_frame:06d}.jpg"
         fpath = os.path.join(out_dir, fname)
@@ -178,7 +186,6 @@ def save_evidence_images(
 
     cap.release()
     return evidence
-
 
 
 # 전체 예측 함수
@@ -282,6 +289,10 @@ def predict_from_video(video_path: str, user_id: str) -> dict:
             # 2) 없으면, 영상 파일이 있는 폴더 아래에 evidence/<영상명>
             evidence_dir = os.path.join(os.path.dirname(video_path), "evidence", base_name)
 
+        frame_index_map = None
+        if isinstance(pose_stats, dict):
+            frame_index_map = pose_stats.get("frame_index_map")
+
         # 라벨별 대표 프레임 1장씩 캡처 + 좌표 오버레이 + 저장
         evidence = save_evidence_images(
             video_path=video_path,
@@ -291,6 +302,7 @@ def predict_from_video(video_path: str, user_id: str) -> dict:
             window=WINDOW,                 
             out_dir=evidence_dir,
             label_map=LABEL_MAP,           # 기존에 쓰던 라벨 맵 그대로
+            frame_index_map=frame_index_map,
         )
 
 
