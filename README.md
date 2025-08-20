@@ -118,3 +118,6 @@ project-root/
 ## Links
 
 https://colab.research.google.com/drive/1hRJyIzisMv9yFO7gY9Hn1yxDeAlRBNAY?usp=sharing
+
+
+0819 은정: 이제 제발 됐으면 좋겠다..... // 이건 꼭 수정!!!
