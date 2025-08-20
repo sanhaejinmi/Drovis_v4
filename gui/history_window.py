@@ -37,6 +37,7 @@ class HistoryWindow(QWidget):
             ["파일명", "포즈 인식 성공", "탐지 행동 비율", "위험도", "시간", "근거", "보고서"]
         )
         header = self.table.horizontalHeader()
+        header.setStretchLastSection(False)
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.Stretch)
@@ -74,6 +75,7 @@ class HistoryWindow(QWidget):
         self.setLayout(layout)
 
         self.load_history()
+        QTimer.singleShot(0, self.table.resizeColumnsToContents)
 
     def make_ro_item(self, text, align_left=True):
         it = QTableWidgetItem(text)
