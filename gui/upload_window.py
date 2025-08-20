@@ -173,6 +173,7 @@ class UploadWindow(QWidget):
                     "confidence": None,
                     "timestamp": timestamp,
                     "description": "AI 자동 분석 결과",
+                    "evidence": result_data.get("evidence", []),
                 }
             )
 

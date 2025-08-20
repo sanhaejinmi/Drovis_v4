@@ -3,11 +3,16 @@ from PyQt5.QtWidgets import (
     QWidget, QVBoxLayout, QLabel, QPushButton, QTableWidget, QTableWidgetItem,
     QHeaderView, QMessageBox, QHBoxLayout
 )
-from PyQt5.QtCore import Qt
+from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor
 
 from core.services.history_json import load_all, delete_all
 from gui.explanation_window import ExplanationWindow  # 새 창
+
+from PyQt5.QtWidgets import QDialog, QScrollArea, QGridLayout, QSizePolicy
+from PyQt5.QtGui import QPixmap
+import os
+
 
 class HistoryWindow(QWidget):
     def __init__(self, username=None, history_file="data/history.json"):
@@ -25,11 +30,11 @@ class HistoryWindow(QWidget):
         title.setStyleSheet("font-size: 20px; font-weight: 600; margin-bottom: 12px;")
         layout.addWidget(title)
 
-        # 컬럼: 파일명 | 포즈성공 | 행동비율 | 위험도 | 시간 | 설명
+        # 컬럼: 파일명 | 포즈성공 | 행동비율 | 위험도 | 시간 | 근거 | 보고서 
         self.table = QTableWidget()
-        self.table.setColumnCount(6)
+        self.table.setColumnCount(7)
         self.table.setHorizontalHeaderLabels(
-            ["파일명", "포즈 인식 성공", "탐지 행동 비율", "위험도", "시간", "설명"]
+            ["파일명", "포즈 인식 성공", "탐지 행동 비율", "위험도", "시간", "근거", "보고서"]
         )
         header = self.table.horizontalHeader()
         header.setSectionResizeMode(0, QHeaderView.Stretch)
@@ -38,6 +43,7 @@ class HistoryWindow(QWidget):
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
+        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
 
         self.table.setWordWrap(True)
         self.table.setTextElideMode(Qt.ElideNone)
@@ -121,7 +127,7 @@ class HistoryWindow(QWidget):
         btn.setCursor(Qt.PointingHandCursor)
         # record_payload에는 decision_id, filename, timestamp, model_version 등 담기
         btn.clicked.connect(lambda: self.open_explanation(record_payload))
-        self.table.setCellWidget(row, 5, btn)
+        self.table.setCellWidget(row, 6, btn)
 
     def load_history(self):
         history = load_all(self.username)  # [{...}, ...]
@@ -151,7 +157,105 @@ class HistoryWindow(QWidget):
             self.table.setItem(row, 3, self.make_colored_item(risk))
             self.table.setItem(row, 4, self.make_ro_item(ts, align_left=False))
             self.add_explain_button(row, payload)
+            self.add_evidence_button(row, payload)
             self.table.resizeRowToContents(row)
+
+    def add_evidence_button(self, row, record_payload):
+        btn = QPushButton("근거 장면 보기")
+        btn.setCursor(Qt.PointingHandCursor)
+        btn.clicked.connect(lambda: self.open_evidence_dialog(record_payload))
+        self.table.setCellWidget(row, 5, btn)
+
+    def open_evidence_dialog(self, payload):
+        ev_list = payload.get("evidence") or []
+        if not ev_list:
+            QMessageBox.information(self, "근거 없음", "이 기록에는 근거가 없습니다.")
+            return
+    
+        dlg = QDialog(self)
+        dlg.setWindowTitle(f"근거 이미지 - {payload.get('filename', '')}")
+        dlg.resize(1000, 800)
+
+        scroll = QScrollArea(dlg)
+        scroll.setWidgetResizable(True)
+
+        container = QWidget()
+        vbox = QVBoxLayout(container)
+        vbox.setContentsMargins(24, 24, 24, 24)
+        vbox.setSpacing(28)
+        
+# ... (dlg/scroll/container/vbox 세팅은 동일)
+
+        img_labels, orig_pixmaps = [], []
+
+        for ev in ev_list:
+            path = ev.get("image_path")
+            if not path or not os.path.exists(path):
+                continue
+
+            # 카드 컨테이너 (이미지 + 캡션)
+            card = QWidget()
+            card_v = QVBoxLayout(card)
+            card_v.setContentsMargins(0, 0, 18, 32)  # 아래 여백 조금
+            card_v.setSpacing(10)
+
+            # 1) 이미지
+            img = QLabel()
+            img.setAlignment(Qt.AlignCenter)
+            img.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Fixed)
+
+            pm = QPixmap(path)
+            if not pm.isNull():
+                w = max(600, int(scroll.viewport().width() * 0.95))
+                img.setPixmap(pm.scaledToWidth(w, Qt.SmoothTransformation))
+
+                # (옵션) 클릭 시 원본 보기
+                def open_full(p=path, t=ev.get("label","-")):
+                    full = QDialog(self)
+                    full.setWindowTitle(t)
+                    full.resize(1200, 900)
+                    s = QScrollArea(full); s.setWidgetResizable(True)
+                    lab = QLabel(); lab.setPixmap(QPixmap(p))
+                    s.setWidget(lab)
+                    lay = QVBoxLayout(full); lay.addWidget(s)
+                    full.exec_()
+                img.mousePressEvent = lambda _e, f=open_full: f()
+
+            card_v.addWidget(img, 0, Qt.AlignHCenter)
+            img_labels.append(img); orig_pixmaps.append(pm)
+
+            # 2) 캡션 (가운데 정렬)
+            caption_txt = f"{ev.get('label','-')} @ {ev.get('timestamp_sec','-')}s"
+            caption = QLabel(caption_txt)
+            caption.setAlignment(Qt.AlignHCenter)              # <- 핵심
+            caption.setStyleSheet("font-size:28px; font-weight:600; color:#333;")
+            caption.setWordWrap(True)
+            card_v.addWidget(caption, 0, Qt.AlignHCenter)
+
+            # 카드 추가
+            vbox.addWidget(card, 0, Qt.AlignHCenter)
+
+        scroll.setWidget(container)
+        lay = QVBoxLayout(dlg)
+        lay.addWidget(scroll)
+
+        # ... (scroll.setWidget(container), 레이아웃/리사이즈 핸들러 동일)
+        def _rescale():
+            w = max(600, int(scroll.viewport().width() * 0.95))
+            for lbl, pm in zip(img_labels, orig_pixmaps):
+                if not pm.isNull():
+                    lbl.setPixmap(pm.scaledToWidth(w, Qt.SmoothTransformation))
+
+        old_resize = dlg.resizeEvent
+        def new_resizeEvent(e):
+            _rescale()
+            if old_resize:
+                old_resize(e)
+        dlg.resizeEvent = new_resizeEvent
+
+        QTimer.singleShot(0, _rescale)
+        dlg.exec_()
+
 
     def clear_history(self):
         reply = QMessageBox.question(
