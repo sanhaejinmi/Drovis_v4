@@ -34,9 +34,9 @@ class HistoryWindow(QWidget):
 
         # 컬럼: 파일명 | 포즈성공 | 행동비율 | 위험도 | 시간 | 근거 | 보고서 
         self.table = QTableWidget()
-        self.table.setColumnCount(7)
+        self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels(
-            ["파일명", "포즈 인식 성공", "탐지 행동 비율", "위험도", "시간", "근거", "보고서"]
+            ["파일명", "포즈 인식 성공", "탐지 행동 비율", "위험도", "시간", "근거"]
         )
         header = self.table.horizontalHeader()
         header.setStretchLastSection(False)
@@ -46,7 +46,7 @@ class HistoryWindow(QWidget):
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
+
 
         self.table.setWordWrap(True)
         self.table.setTextElideMode(Qt.ElideNone)
@@ -126,12 +126,6 @@ class HistoryWindow(QWidget):
         it.setTextAlignment(Qt.AlignCenter)
         return it
 
-    def add_explain_button(self, row, record_payload):
-        btn = QPushButton("설명 보기")
-        btn.setCursor(Qt.PointingHandCursor)
-        # record_payload에는 decision_id, filename, timestamp, model_version 등 담기
-        btn.clicked.connect(lambda: self.open_explanation(record_payload))
-        self.table.setCellWidget(row, 6, btn)
 
     def load_history(self):
         history = load_all(self.username)  # [{...}, ...]
@@ -160,7 +154,6 @@ class HistoryWindow(QWidget):
             self.table.setItem(row, 2, self.make_ro_item(beh_txt))
             self.table.setItem(row, 3, self.make_colored_item(risk))
             self.table.setItem(row, 4, self.make_ro_item(ts, align_left=False))
-            self.add_explain_button(row, payload)
             self.add_evidence_button(row, payload)
             self.table.resizeRowToContents(row)
 
