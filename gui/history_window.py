@@ -7,7 +7,6 @@ from PyQt5.QtCore import Qt, QTimer
 from PyQt5.QtGui import QColor
 
 from core.services.history_json import load_all, delete_all
-from gui.explanation_window import ExplanationWindow  # 새 창
 
 from PyQt5.QtWidgets import QDialog, QScrollArea, QGridLayout, QSizePolicy
 from PyQt5.QtGui import QPixmap
@@ -19,7 +18,7 @@ class HistoryWindow(QWidget):
         super().__init__()
         self.setWindowTitle("분석 기록")
         self.setGeometry(300, 200, 1100, 640)
-        self.resize(1175, 700)
+        self.resize(1100, 640)
         self.setMinimumSize(1000, 500)
         self.history_file = history_file
         self.username = username
@@ -34,19 +33,19 @@ class HistoryWindow(QWidget):
 
         # 컬럼: 파일명 | 포즈성공 | 행동비율 | 위험도 | 시간 | 근거 | 보고서 
         self.table = QTableWidget()
-        self.table.setColumnCount(7)
+        self.table.setColumnCount(6)
         self.table.setHorizontalHeaderLabels(
-            ["파일명", "포즈 인식 성공", "탐지 행동 비율", "위험도", "시간", "근거", "보고서"]
+            ["파일명", "포즈 인식 성공", "탐지 행동 비율", "위험도", "시간", "근거"]
         )
         header = self.table.horizontalHeader()
-        header.setStretchLastSection(False)
+        header.setStretchLastSection(True)
         header.setSectionResizeMode(0, QHeaderView.Stretch)
         header.setSectionResizeMode(1, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(2, QHeaderView.Stretch)
         header.setSectionResizeMode(3, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(4, QHeaderView.ResizeToContents)
         header.setSectionResizeMode(5, QHeaderView.ResizeToContents)
-        header.setSectionResizeMode(6, QHeaderView.ResizeToContents)
+
 
         self.table.setWordWrap(True)
         self.table.setTextElideMode(Qt.ElideNone)
@@ -77,7 +76,7 @@ class HistoryWindow(QWidget):
         self.setLayout(layout)
 
         self.load_history()
-        QTimer.singleShot(0, self.table.resizeColumnsToContents)
+
 
     def make_ro_item(self, text, align_left=True):
         it = QTableWidgetItem(text)
@@ -126,12 +125,6 @@ class HistoryWindow(QWidget):
         it.setTextAlignment(Qt.AlignCenter)
         return it
 
-    def add_explain_button(self, row, record_payload):
-        btn = QPushButton("설명 보기")
-        btn.setCursor(Qt.PointingHandCursor)
-        # record_payload에는 decision_id, filename, timestamp, model_version 등 담기
-        btn.clicked.connect(lambda: self.open_explanation(record_payload))
-        self.table.setCellWidget(row, 6, btn)
 
     def load_history(self):
         history = load_all(self.username)  # [{...}, ...]
@@ -160,7 +153,6 @@ class HistoryWindow(QWidget):
             self.table.setItem(row, 2, self.make_ro_item(beh_txt))
             self.table.setItem(row, 3, self.make_colored_item(risk))
             self.table.setItem(row, 4, self.make_ro_item(ts, align_left=False))
-            self.add_explain_button(row, payload)
             self.add_evidence_button(row, payload)
             self.table.resizeRowToContents(row)
 
@@ -271,9 +263,7 @@ class HistoryWindow(QWidget):
             self.table.setRowCount(0)
             QMessageBox.information(self, "삭제됨", f"{deleted}개 기록이 삭제되었습니다.")
 
-    def open_explanation(self, payload):
-        self.explain_window = ExplanationWindow(username=self.username, record_payload=payload)
-        self.explain_window.show()
+
 
     def go_back_to_upload(self):
         from gui.upload_window import UploadWindow
